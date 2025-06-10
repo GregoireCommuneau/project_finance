@@ -1,6 +1,6 @@
 <template>
   <div class="bg-white rounded-2xl shadow p-4 w-full max-w-sm mx-auto">
-    <!-- Header: Nom + secteur -->
+    <!-- Header: Name + Sector -->
     <div class="flex justify-between items-center mb-2">
       <div>
         <h2 class="text-lg font-bold text-gray-800">{{ company.name }}</h2>
@@ -8,23 +8,42 @@
       </div>
       <div class="text-right">
         <span
-          class="inline-block text-xs font-semibold bg-blue-100 text-blue-800 px-2 py-1 rounded-full"
+          :class="badgeClass"
+          class="inline-block text-xs font-semibold px-2 py-1 rounded-full"
         >
-          PE Score: {{ score.toFixed(1) }}/100
+          {{ badgeText }}
         </span>
+        <p class="text-xs text-gray-500 mt-1 max-w-xs">
+          Score based on EBITDA margin, debt, growth, revenue and valuation metrics.
+        </p>
       </div>
     </div>
 
-    <!-- Prix et tendance -->
+    <!-- Price and trend -->
     <PriceTrend :history="company.priceHistory" :price="company.price" />
 
-    <!-- Indicateurs clés -->
+    <!-- Key metrics -->
     <ul class="mt-4 space-y-1 text-sm text-gray-600">
-      <li><span class="font-medium text-gray-800">EBITDA Margin:</span> {{ company.ebitdaMargin }}%</li>
-      <li><span class="font-medium text-gray-800">Debt / EBITDA:</span> {{ company.debtToEbitda }}</li>
-      <li><span class="font-medium text-gray-800">EV / EBITDA:</span> {{ evToEbitda.toFixed(1) }}</li>
-      <li><span class="font-medium text-gray-800">Growth:</span> {{ company.growth }}%</li>
-      <li><span class="font-medium text-gray-800">Revenue:</span> {{ company.revenue }} M€</li>
+      <li>
+        <span class="font-medium text-gray-800">EBITDA Margin:</span>
+        {{ fmt(company.ebitdaMargin) }}%
+      </li>
+      <li>
+        <span class="font-medium text-gray-800">Debt / EBITDA:</span>
+        {{ fmt(company.debtToEbitda) }}
+      </li>
+      <li>
+        <span class="font-medium text-gray-800">EV / EBITDA:</span>
+        {{ evToEbitdaFormatted }}
+      </li>
+      <li>
+        <span class="font-medium text-gray-800">Growth:</span>
+        {{ fmt(company.growth) }}%
+      </li>
+      <li>
+        <span class="font-medium text-gray-800">Revenue:</span>
+        {{ fmt(company.revenue) }} M€
+      </li>
     </ul>
   </div>
 </template>
@@ -32,36 +51,30 @@
 <script setup>
 import { computed } from 'vue'
 import PriceTrend from './PriceTrend.vue'
+import { fmt, computeScore, computeEVtoEbitda } from '@/utils/financeUtils'
 
-const props = defineProps({
-  company: Object
-})
+const props = defineProps({ company: Object })
 
-const normalize = (val, min, max) => {
-  if (val == null || isNaN(val)) return 0
-  return Math.max(0, Math.min(100, ((val - min) / (max - min)) * 100))
-}
-
-const evToEbitda = computed(() => {
-  const c = props.company
-  return (c.price * c.sharesOutstanding + c.netDebt) / c.ebitda
-})
+const evToEbitda = computed(() => computeEVtoEbitda(props.company))
 
 const score = computed(() => {
-  const c = props.company
-
-  const ebitdaScore = normalize(c.ebitdaMargin, 0, 50)
-  const debtScore = normalize(10 - c.debtToEbitda, 0, 10)
-  const growthScore = normalize(c.growth, -20, 50)
-  const revenueScore = normalize(c.revenue, 0, 500)
-  const evScore = normalize(30 - evToEbitda.value, 0, 30)
-
-  return (
-    0.25 * ebitdaScore +
-    0.2 * debtScore +
-    0.15 * growthScore +
-    0.15 * revenueScore +
-    0.25 * evScore
-  )
+  return computeScore(props.company, evToEbitda.value)
 })
+
+const evToEbitdaFormatted = computed(() => {
+  return evToEbitda.value != null ? evToEbitda.value.toFixed(1) : '–'
+})
+
+const badgeText = computed(() =>
+  score.value == null ? 'Incomplete Data' : `Fundamental Score: ${score.value.toFixed(1)}/100`
+)
+
+const badgeClass = computed(() => {
+  const s = score.value
+  if (s == null) return 'bg-gray-100 text-gray-600'
+  if (s >= 80) return 'bg-green-100 text-green-800'
+  if (s >= 50) return 'bg-yellow-100 text-yellow-800'
+  return 'bg-red-100 text-red-800'
+})
+
 </script>

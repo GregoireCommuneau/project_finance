@@ -3,60 +3,63 @@
     class="relative bg-white rounded-xl shadow-md p-5 transition hover:shadow-lg border hover:border-blue-500 cursor-pointer"
     @click="$emit('click')"
   >
-    <!-- PE Score badge (top-right corner) -->
+    <!-- Score badge (top-right corner) with tooltip -->
     <div
-      :class="[
-        'absolute top-3 right-3 text-xs px-2 py-1 rounded font-semibold',
-        score.value >= 80 ? 'bg-green-500 text-white'
-        : score.value >= 60 ? 'bg-yellow-500 text-white'
-        : 'bg-red-500 text-white'
-      ]"
+      :class="scoreBadgeClass"
+      class="absolute top-3 right-3 text-xs px-2 py-1 rounded font-semibold group"
+      @click.stop
     >
-      Score: {{ score }}
+      <span>{{ scoreLabel }}</span>
+      <div
+        v-if="scoreTooltip"
+        class="absolute z-10 hidden group-hover:block bg-black text-white text-xs rounded px-2 py-1 mt-1 right-0 max-w-[240px] w-max whitespace-pre-line"
+      >
+        {{ scoreTooltip }}
+      </div>
     </div>
 
     <!-- Company header -->
     <div class="mb-4">
-      <h3 class="text-lg font-bold text-gray-800">{{ company.name }}</h3>
-      <p class="text-sm text-gray-500">{{ company.sector }}</p>
+      <h3 class="text-lg font-bold text-gray-800">{{ company.name || 'Unknown' }}</h3>
+      <p class="text-sm text-gray-500">{{ company.sector || 'Unknown sector' }}</p>
     </div>
 
     <!-- Metrics in 2-column layout -->
     <div class="grid grid-cols-2 gap-y-3 gap-x-4 text-sm text-gray-700">
-      <!-- Revenue -->
       <div>
         <span class="block font-medium text-gray-500">Revenue</span>
-        <span class="text-gray-900">${{ company.revenue.toFixed(1) }}M</span>
+        <span :class="valueColor(company.revenue)">
+          {{ formatNumber(company.revenue) }}
+        </span>
       </div>
 
-      <!-- EBITDA Margin -->
       <div>
         <span class="block font-medium text-gray-500">EBITDA Margin</span>
-        <span class="text-gray-900">{{ company.ebitdaMargin.toFixed(1) }}%</span>
+        <span :class="valueColor(company.ebitdaMargin)">
+          {{ formatPercent(company.ebitdaMargin) }}
+        </span>
       </div>
 
-      <!-- Debt/EBITDA -->
       <div>
-        <span class="block font-medium text-gray-500">Debt/EBITDA</span>
-        <span class="text-gray-900">{{ company.debtToEbitda.toFixed(2) }}</span>
+        <span class="block font-medium text-gray-500">Debt / EBITDA</span>
+        <span :class="valueColor(company.debtToEbitda)">
+          {{ debtToEbitdaFormatted }}
+        </span>
       </div>
 
-      <!-- Growth with conditional color -->
       <div>
         <span class="block font-medium text-gray-500">Growth</span>
-        <span
-          :class="{
-            'text-green-600': company.growth > 10,
-            'text-yellow-600': company.growth > 5 && company.growth <= 10,
-            'text-red-600': company.growth <= 5
-          }"
-        >
-          {{ company.growth.toFixed(1) }}%
+        <span :class="growthColor(company.growth)">
+          {{ formatPercent(company.growth) }}
         </span>
       </div>
     </div>
-    <!-- Price trend (graph + % + prix brut) -->
-    <PriceTrend :price="company.price" :history="company.priceHistory" :range="range" />
+
+    <!-- Price trend -->
+    <PriceTrend v-if="company.price !== null" :price="company.price" :history="company.priceHistory" :range="range" />
+    <div v-else>
+      <p class="text-center text-gray-500 mt-2">Price trend data not available</p>
+    </div>
   </div>
 </template>
 
@@ -66,30 +69,83 @@ import PriceTrend from './PriceTrend.vue'
 
 const props = defineProps({
   company: Object,
-  range: Object
+  range: Object,
+  score: [Number, String],
+  missingFields: Array
 })
 
-const normalize = (val, min, max) => {
-  if (val == null || isNaN(val)) return 0
-  return Math.max(0, Math.min(100, ((val - min) / (max - min)) * 100))
+// Helper function to check if a value is a valid number
+const isValidNumber = (value) => {
+  if (value === null || value === undefined || value === '') return false
+  const num = Number(value)
+  return !isNaN(num) && isFinite(num)
 }
 
-const score = computed(() => {
-  const c = props.company
+// Helper function to format numbers
+function formatNumber(value, unit = '', decimals = 1) {
+  if (value == null || isNaN(value)) return '-'
 
-  const ebitdaScore = normalize(c.ebitdaMargin, 0, 50)
-  const debtScore = normalize(10 - c.debtToEbitda, 0, 10)
-  const growthScore = normalize(c.growth, -20, 50)
-  const revenueScore = normalize(c.revenue, 0, 500)
-  const evToEbitda = (c.price * c.sharesOutstanding + c.netDebt) / c.ebitda
-  const evScore = normalize(30 - evToEbitda, 0, 30)
+  const abs = Math.abs(value)
 
-  return (
-    0.25 * ebitdaScore +
-    0.2 * debtScore +
-    0.15 * growthScore +
-    0.15 * revenueScore +
-    0.25 * evScore
-  )
+  if (abs >= 1_000_000_000) return `${(value / 1_000_000_000).toFixed(decimals)} B ${unit}`
+  if (abs >= 1_000_000) return `${(value / 1_000_000).toFixed(decimals)} M ${unit}`
+  if (abs >= 1_000) return `${(value / 1_000).toFixed(decimals)} k ${unit}`
+
+  return `${value.toFixed(decimals)} ${unit}`
+}
+
+// Helper function to format percentages
+const formatPercent = (value) => {
+  return isValidNumber(value) ? `${Number(value).toFixed(2)}%` : 'N/A'
+}
+
+// Whether score is valid (all fields present)
+const hasValidScore = computed(() => {
+  const s = Number(props.score)
+  return isValidNumber(s) && s >= 0 && s <= 100 && (!props.missingFields || props.missingFields.length === 0)
 })
+
+// Score value to display
+const scoreLabel = computed(() => {
+  if (!hasValidScore.value) return 'Score: N/A'
+  return 'Score: ' + Math.round(props.score)
+})
+
+// Tooltip content
+const scoreTooltip = computed(() => {
+  if (hasValidScore.value) return 'Score based on financial and price trend metrics'
+  if (props.missingFields?.length) {
+    return 'Missing fields:\n' + props.missingFields.map(f => `• ${f}`).join('\n')
+  }
+  return 'Missing data for score computation'
+})
+
+// Score badge class depending on value or missing fields
+const scoreBadgeClass = computed(() => {
+  if (!hasValidScore.value) return 'bg-gray-300 text-gray-600'
+  const s = Number(props.score)
+  if (s >= 80) return 'bg-green-500 text-white'
+  if (s >= 60) return 'bg-yellow-500 text-white'
+  return 'bg-red-500 text-white'
+})
+
+// Format Debt/EBITDA safely
+const debtToEbitdaFormatted = computed(() => {
+  const val = Number(props.company?.debtToEbitda)
+  return isValidNumber(val) ? val.toFixed(2) : 'N/A'
+})
+
+// Growth color based on thresholds
+const growthColor = (growth) => {
+  if (!isValidNumber(growth)) return 'text-gray-500'
+  if (growth > 10) return 'text-green-600'
+  if (growth > 5) return 'text-yellow-600'
+  return 'text-red-600'
+}
+
+// Generic color fallback
+const valueColor = (val) => {
+  return isValidNumber(val) ? 'text-gray-900' : 'text-gray-500'
+}
+
 </script>

@@ -15,14 +15,22 @@
       <p class="text-gray-600 mb-4">{{ company.sector }}</p>
 
       <div class="grid grid-cols-2 gap-4 text-sm">
-        <p><strong>Revenue:</strong> ${{ company.revenue.toFixed(1) }}M</p>
-        <p><strong>EBITDA Margin:</strong> {{ company.ebitdaMargin.toFixed(1) }}%</p>
-        <p><strong>Debt/EBITDA:</strong> {{ company.debtToEbitda.toFixed(2) }}</p>
-        <p><strong>Growth:</strong> {{ company.growth.toFixed(1) }}%</p>
+        <p><strong>Revenue:</strong> {{ formatNumber(company.revenue) }}</p>
+        <p><strong>EBITDA Margin:</strong> {{ formatPercent(company.ebitdaMargin) }}</p>
+        <p><strong>Debt/EBITDA:</strong> {{ company.debtToEbitda?.toFixed(2) ?? 'N/A' }}</p>
+        <p><strong>Growth:</strong> {{ formatPercent(company.growth) }}</p>
       </div>
 
       <div class="mt-6">
         <RadarChart :company="company" />
+      </div>
+
+      <div class="mt-6">
+        <PriceTrend
+          :price="company.price"
+          :history="company.priceHistory"
+          :range="range"
+        />
       </div>
 
       <div class="mt-6 text-right">
@@ -36,7 +44,13 @@
 
 <script setup>
 import RadarChart from './RadarChart.vue'
-const props = defineProps({ company: Object })
+import PriceTrend from './PriceTrend.vue'
+import { formatNumber, formatPercent } from '@/utils/formatting'
+
+const props = defineProps({
+  company: Object,
+  range: Object
+})
 </script>
 
 <style scoped>
