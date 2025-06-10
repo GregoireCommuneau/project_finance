@@ -64,12 +64,6 @@
       >
         Export CSV
       </button>
-      <button
-        @click="onReload"
-        class="px-4 py-2 bg-green-600 text-white hover:bg-green-700 rounded-lg text-sm font-medium transition"
-      >
-        Reload Fresh
-      </button>
     </div>
   </div>
 </template>
@@ -80,7 +74,6 @@ const props = defineProps({
   sectors: Array,
   onReset: Function,
   onExport: Function,
-  onReload: Function,
   totalCount: Number,
   filteredCount: Number
 })

@@ -1,36 +1,42 @@
 <template>
   <div class="container mx-auto px-4 py-8">
-    <div class="sticky top-0 z-40 bg-white py-4 shadow-md mb-6">
-      <!-- Filter panel -->
-      <FilterPanel
-        :filters="filters"
-        :sectors="sectors"
-        :onReset="resetFilters"
-        :onExport="exportToCSV"
-        :onReload="() => loadCompanies(true)"
-        :totalCount="companies.length"
-        :filteredCount="filteredCompanies.length"
-      />
+    <!-- Sticky header with filters, sort, and range -->
+    <div
+      class="sticky top-0 z-40 bg-white shadow-md border-b border-gray-200 mb-6 transition-transform duration-300"
+      :class="{ '-translate-y-full': !showHeader, 'translate-y-0': showHeader }"
+    >
+      <div class="flex flex-col sm:flex-row flex-wrap gap-4 px-4 py-2 items-center justify-between">
+        <!-- Filter panel -->
+        <FilterPanel
+          :filters="filters"
+          :sectors="sectors"
+          :onReset="resetFilters"
+          :onExport="exportToCSV"
+          :totalCount="companies.length"
+          :filteredCount="filteredCompanies.length"
+        />
 
-      <!-- Controls: Time range and sort selection -->
-      <div class="flex flex-wrap md:flex-nowrap items-center justify-between mt-4 px-6 gap-4">
-        <div class="flex gap-2">
-          <button
-            v-for="range in globalRanges"
-            :key="range.label"
-            @click="globalRange = range"
-            :class="[
-              'px-3 py-1 rounded text-sm font-medium border',
-              globalRange.label === range.label
-                ? 'bg-blue-600 text-white border-blue-600'
-                : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-100'
-            ]"
+        <!-- Controls: Time range and sort selection -->
+        <div class="flex flex-wrap sm:flex-nowrap items-center gap-3">
+          <div class="flex gap-2">
+            <button
+              v-for="range in globalRanges"
+              :key="range.label"
+              @click="globalRange = range"
+              :class="[
+                'px-3 py-1 rounded text-sm font-medium border',
+                globalRange.label === range.label
+                  ? 'bg-blue-600 text-white border-blue-600'
+                  : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-100'
+              ]"
+            >
+              {{ range.label }}
+            </button>
+          </div>
+          <select
+            v-model="sortBy"
+            class="border border-gray-300 px-3 py-2 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
           >
-            {{ range.label }}
-          </button>
-        </div>
-        <div>
-          <select v-model="sortBy" class="border border-gray-300 px-3 py-2 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none">
             <option value="">Sort by...</option>
             <option value="score">PE Score</option>
             <option value="revenue">Revenue</option>
@@ -64,8 +70,8 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted } from 'vue'
-import { companies, loadCompanies } from '../data/companies'
+import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
+import { useCachedData } from '../composables/useCachedData'
 import CompanyCard from './CompanyCard.vue'
 import CompanyModal from './CompanyModal.vue'
 import FilterPanel from './FilterPanel.vue'
@@ -73,7 +79,8 @@ import { computeSectorScore } from '../utils/scoringService'
 import { sectorProfiles } from '../utils/sectorProfiles'
 import { normalize } from '../utils/financeUtils'
 
-// Reactive filters object
+const { data: companies, loading } = useCachedData()
+
 const filters = reactive({
   minGrowth: null,
   maxDebt: null,
@@ -83,7 +90,6 @@ const filters = reactive({
   peaEligible: false
 })
 
-// Available time ranges for trend computation
 const globalRanges = [
   { label: '1M', length: 21 },
   { label: '6M', length: 126 },
@@ -92,23 +98,28 @@ const globalRanges = [
 const globalRange = ref(globalRanges[0])
 const selectedCompany = ref(null)
 const sortBy = ref('')
+const showHeader = ref(true)
+let lastScroll = 0
 
-// Load companies on component mount
+function handleScroll() {
+  const current = window.scrollY
+  showHeader.value = current < lastScroll || current < 50
+  lastScroll = current
+}
+
 onMounted(() => {
-  loadCompanies().then(() => {
-    companies.forEach(c => {
-      c.trend = computeTrend(c.priceHistory)
-    })
-  })
+  window.addEventListener('scroll', handleScroll)
 })
 
-// List of unique sectors
+onUnmounted(() => {
+  window.removeEventListener('scroll', handleScroll)
+})
+
 const sectors = computed(() => {
-  const all = companies.map(c => c.sector)
+  const all = companies.value.map(c => c.sector)
   return [...new Set(all)].filter(Boolean).sort()
 })
 
-// Countries eligible for PEA (Plan d'Épargne en Actions)
 const peaEligibleCountries = [
   'France', 'Germany', 'Italy', 'Spain', 'Netherlands', 'Belgium', 'Austria',
   'Portugal', 'Greece', 'Finland', 'Ireland', 'Luxembourg', 'Denmark',
@@ -117,7 +128,6 @@ const peaEligibleCountries = [
   'DK', 'SE', 'NO', 'IS', 'LI', 'CH'
 ]
 
-// Reset all filters
 function resetFilters() {
   filters.minGrowth = null
   filters.maxDebt = null
@@ -127,40 +137,33 @@ function resetFilters() {
   filters.peaEligible = false
 }
 
-// Check if a value is a clean, usable number
 function isValidNumber(value) {
   if (value === null || value === undefined || value === '') return false
   const num = Number(value)
   return !isNaN(num) && isFinite(num)
 }
 
-// Identify which fields are missing or invalid for a company
 function missingFields(company) {
   const sector = company.sector || 'default'
   const profile = sectorProfiles[sector] || sectorProfiles['default']
   const requiredMetrics = profile.metrics
-
   return requiredMetrics.filter(metric => {
     const value = company[metric]
     return value === undefined || value === null || isNaN(Number(value))
   })
 }
 
-// Compute the overall score for a company based on several metrics
 function computeScore(c) {
   return computeSectorScore(c)
 }
 
-// Export filtered companies to CSV
 function exportToCSV() {
   const rows = [
     ['Name', 'Sector', 'Country', 'Revenue', 'EBITDA Margin (%)', 'Debt/EBITDA', 'Growth (%)', 'PE Score', 'Price Trend (%)']
   ]
-
   filteredCompanies.value.forEach(c => {
     const score = computeScore(c)
     const trend = computeTrend(c.priceHistory)
-
     rows.push([
       `"${c.name}"`,
       `"${c.sector}"`,
@@ -173,7 +176,6 @@ function exportToCSV() {
       isValidNumber(trend) ? trend.toFixed(1) : 'N/A'
     ])
   })
-
   const csvContent = '\uFEFF' + rows.map(row => row.join(',')).join('\n')
   const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
   const link = document.createElement('a')
@@ -182,53 +184,39 @@ function exportToCSV() {
   link.click()
 }
 
-
-// Apply filters to companies list
 const filteredCompanies = computed(() => {
-  return companies.filter(c => {
+  return companies.value.filter(c => {
     const passesFilters =
       (filters.minGrowth === null || Number(c.growth) >= filters.minGrowth) &&
       (filters.maxDebt === null || Number(c.debtToEbitda) <= filters.maxDebt) &&
       (filters.minRevenue === null || Number(c.revenue) >= filters.minRevenue) &&
       (filters.minMargin === null || Number(c.ebitdaMargin) >= filters.minMargin) &&
       (filters.sector === '' || c.sector === filters.sector)
-
     const raw = (c.country || c.exchangeCountry || '').trim().toUpperCase()
     if (filters.peaEligible) {
       return passesFilters && peaEligibleCountries.includes(raw)
     }
-
     return passesFilters
   })
 })
 
-// Sort filtered companies based on selected field
 const sortedCompanies = computed(() => {
-  // Create a copy of the filtered companies
-  let companiesToSort = [...filteredCompanies.value];
-
-  // If sorting by score, exclude companies with a score of "N/A"
+  let companiesToSort = [...filteredCompanies.value]
   if (sortBy.value === 'score') {
-    companiesToSort = companiesToSort.filter(company => computeScore(company) !== 'N/A');
+    companiesToSort = companiesToSort.filter(company => computeScore(company) !== 'N/A')
   }
-
-  // Sort the remaining companies
   return companiesToSort.sort((a, b) => {
-    const aScore = computeScore(a);
-    const bScore = computeScore(b);
+    const aScore = computeScore(a)
+    const bScore = computeScore(b)
+    if (aScore === 'N/A' || bScore === 'N/A') return 0
+    if (sortBy.value === 'score') return Number(bScore) - Number(aScore)
+    if (sortBy.value === 'revenue') return Number(b.revenue) - Number(a.revenue)
+    if (sortBy.value === 'growth') return Number(b.growth) - Number(a.growth)
+    if (sortBy.value === 'debt') return Number(a.debtToEbitda) - Number(b.debtToEbitda)
+    return 0
+  })
+})
 
-    if (aScore === 'N/A' || bScore === 'N/A') return 0;
-    if (sortBy.value === 'score') return Number(bScore) - Number(aScore);
-    if (sortBy.value === 'revenue') return Number(b.revenue) - Number(a.revenue);
-    if (sortBy.value === 'growth') return Number(b.growth) - Number(a.growth);
-    if (sortBy.value === 'debt') return Number(a.debtToEbitda) - Number(b.debtToEbitda);
-
-    return 0;
-  });
-});
-
-
-// Helper function to compute trend
 function computeTrend(history) {
   if (!Array.isArray(history) || history.length < 2) return 0
   const start = Number(history[0])
