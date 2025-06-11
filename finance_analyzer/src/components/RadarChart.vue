@@ -1,23 +1,33 @@
 <template>
   <div class="flex justify-center items-center my-6">
-    <svg ref="radarRef" :width="width" :height="height"></svg>
+    <!-- SVG pour le radar chart -->
+    <svg
+      ref="radarRef"
+      v-if="hasData"
+      :width="width"
+      :height="height"
+      viewBox="0 0 400 400"
+      preserveAspectRatio="xMidYMid meet"
+    ></svg>
+    <p v-else class="text-gray-500 text-sm">Pas assez de données pour afficher le radar.</p>
   </div>
 </template>
 
 <script setup>
-import { onMounted, watch, ref, nextTick } from 'vue'
+import { onMounted, watch, ref, nextTick, computed } from 'vue'
 import * as d3 from 'd3'
 import { sectorProfiles } from '../utils/sectorProfiles'
 
-
-const props = defineProps({ company: Object })
+const props = defineProps({
+  company: Object,
+  allCompanies: Array
+})
 
 const radarRef = ref(null)
 const width = 400
 const height = 400
-const radius = Math.min(width, height) / 2 - 40
+const radius = Math.min(width, height) / 2 - 60
 
-// Axis configurations by sector
 const metricMeta = {
   ebitdaMargin: { label: 'EBITDA Margin (%)', unit: '%', min: 0, max: 70 },
   debtToEbitda: { label: 'Debt/EBITDA', unit: '', min: 0, max: 10, invert: true },
@@ -29,9 +39,8 @@ const metricMeta = {
   trend: { label: 'Price Trend (%)', unit: '%', min: -50, max: 50 }
 }
 
-function getAxesForCompany(company) {
-  const sector = company?.sector || 'default'
-  const profile = sectorProfiles[sector] || sectorProfiles['default']
+function getAxes(company) {
+  const profile = sectorProfiles[company?.sector] || sectorProfiles['default']
   return profile.metrics.map(metric => ({
     key: metric,
     ...(metricMeta[metric] || { label: metric, unit: '', min: 0, max: 100 })
@@ -40,21 +49,58 @@ function getAxesForCompany(company) {
 
 function normalize(value, axis) {
   if (value == null || isNaN(value)) return 0
-  let clipped = Math.max(axis.min, Math.min(axis.max, value))
-  let norm = (clipped - axis.min) / (axis.max - axis.min)
+  const clipped = Math.max(axis.min, Math.min(axis.max, value))
+  const norm = (clipped - axis.min) / (axis.max - axis.min)
   return axis.invert ? 1 - norm : norm
 }
 
-function renderRadar(company) {
+function formatValue(value, unit) {
+  if (value == null || isNaN(value)) return '-'
+  if (unit === '%') return `${value.toFixed(1)}%`
+  if (unit === '€') {
+    if (value >= 1e9) return `${(value / 1e9).toFixed(1)} B €`
+    if (value >= 1e6) return `${(value / 1e6).toFixed(1)} M €`
+    return `${value.toFixed(1)} €`
+  }
+  return value >= 1e6 ? `${(value / 1e6).toFixed(1)} M` : value.toFixed(1)
+}
+
+function computeSectorAverages(company, allCompanies, axes) {
+  if (!allCompanies || allCompanies.length === 0) return {}
+  const sameSector = allCompanies.filter(c => {
+    if (c.sector !== company?.sector) return false
+    const profile = sectorProfiles[company?.sector] || sectorProfiles['default']
+    return profile.metrics.some(key => typeof c[key] === 'number' && !isNaN(c[key]))
+  })
+
+  if (sameSector.length === 0) {
+    console.warn(`[RadarChart] No valid peers found in sector "${company?.sector}"`)
+  }
+
+  const avg = {}
+  for (const axis of axes) {
+    const values = sameSector.map(c => c[axis.key]).filter(v => typeof v === 'number' && !isNaN(v))
+    avg[axis.key] = values.length ? d3.mean(values) : 0
+  }
+  return avg
+}
+
+function renderRadar(company, allCompanies) {
   const svg = d3.select(radarRef.value)
   svg.selectAll('*').remove()
   const g = svg.append('g').attr('transform', `translate(${width / 2}, ${height / 2})`)
 
-  const sector = company?.sector || 'default'
-  const axes = getAxesForCompany(company)
-  const angleSlice = (Math.PI * 2) / axes.length
+  const axes = getAxes(company)
+  const angleSlice = (2 * Math.PI) / axes.length
 
-  // Draw grid
+  const averages = computeSectorAverages(company, allCompanies, axes)
+  const sectorPoints = axes.map((axis, i) => {
+    const angle = angleSlice * i - Math.PI / 2
+    const norm = normalize(averages[axis.key], axis)
+    const r = norm * radius
+    return [r * Math.cos(angle), r * Math.sin(angle)]
+  })
+
   const levels = 5
   for (let level = 1; level <= levels; level++) {
     const r = radius * (level / levels)
@@ -67,7 +113,6 @@ function renderRadar(company) {
       .attr('fill', 'none')
   }
 
-  // Axis lines + labels
   axes.forEach((axis, i) => {
     const angle = angleSlice * i - Math.PI / 2
     const [x, y] = [Math.cos(angle) * radius, Math.sin(angle) * radius]
@@ -78,15 +123,15 @@ function renderRadar(company) {
       .attr('stroke', '#999')
 
     g.append('text')
-      .attr('x', x * 1.15).attr('y', y * 1.15)
+      .attr('x', x * 1.15)
+      .attr('y', y * 1.15)
       .attr('text-anchor', 'middle')
       .attr('dy', '0.35em')
       .style('font-size', '11px')
       .text(axis.label)
   })
 
-  // Data points
-  const points = axes.map((axis, i) => {
+  const companyPoints = axes.map((axis, i) => {
     const angle = angleSlice * i - Math.PI / 2
     const norm = normalize(company?.[axis.key], axis)
     const r = norm * radius
@@ -94,13 +139,19 @@ function renderRadar(company) {
   })
 
   g.append('polygon')
-    .attr('points', points.map(p => p.join(',')).join(' '))
+    .attr('points', companyPoints.map(p => p.join(',')).join(' '))
     .attr('fill', 'rgba(79, 70, 229, 0.2)')
     .attr('stroke', '#4f46e5')
     .attr('stroke-width', 2)
 
-  // Points and value labels
-  points.forEach(([x, y], i) => {
+  g.append('polygon')
+    .attr('points', sectorPoints.map(p => p.join(',')).join(' '))
+    .attr('fill', 'rgba(96, 165, 250, 0.2)')
+    .attr('stroke', '#60a5fa')
+    .attr('stroke-width', 2)
+    .attr('stroke-dasharray', '4 2')
+
+  companyPoints.forEach(([x, y], i) => {
     const axis = axes[i]
     const raw = company?.[axis.key]
     const label = formatValue(raw, axis.unit)
@@ -117,36 +168,22 @@ function renderRadar(company) {
   })
 }
 
-watch(() => props.company, (newCompany) => {
-  if (newCompany) nextTick(() => renderRadar(newCompany))
+const hasData = computed(() => {
+  const axes = getAxes(props.company)
+  const averages = computeSectorAverages(props.company, props.allCompanies, axes)
+  return axes.some(axis => typeof averages[axis.key] === 'number' && !isNaN(averages[axis.key]))
+})
+
+watch(() => props.company, () => {
+  if (props.company && props.allCompanies?.length > 0) {
+    nextTick(() => renderRadar(props.company, props.allCompanies))
+  }
 }, { immediate: true })
 
-function formatValue(value, unit) {
-  if (value == null || isNaN(value)) return '-'
-
-  // Format pourcentages
-  if (unit === '%') {
-    return `${value.toFixed(1)}%`
-  }
-
-  // Money format
-  if (unit === '€') {
-    if (value >= 1_000_000_000) return `${(value / 1_000_000_000).toFixed(1)} B €`
-    if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)} M €`
-    if (value >= 1_000) return `${(value / 1_000).toFixed(1)} k €`
-    return `${value.toFixed(1)} €`
-  }
-
-  // Number format
-  if (value >= 1_000_000_000) return `${(value / 1_000_000_000).toFixed(1)} B`
-  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)} M`
-  if (value >= 1_000) return `${(value / 1_000).toFixed(1)} k`
-
-  return `${value.toFixed(1)}`
-}
-
 onMounted(() => {
-  if (props.company) renderRadar(props.company)
+  if (props.company && props.allCompanies?.length > 0) {
+    renderRadar(props.company, props.allCompanies)
+  }
 })
 </script>
 
@@ -155,7 +192,7 @@ div {
   display: flex;
   justify-content: center;
   align-items: center;
-  height: 100%; /* ou une hauteur spécifique */
+  height: 100%;
 }
 
 svg {

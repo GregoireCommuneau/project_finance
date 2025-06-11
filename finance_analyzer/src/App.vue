@@ -1,10 +1,14 @@
 <template>
-  <main class="p-6">
-    <h1 class="text-3xl font-bold text-center mb-6">Smart Stock Picker</h1>
-    <CompanyList />
-  </main>
+  <div class="font-sans text-gray-800">
+    <main class="p-6">
+      <router-view />
+    </main>
+  </div>
 </template>
 
 <script setup>
-import CompanyList from './components/CompanyList.vue'
+import { provide } from 'vue'
+import { companies } from './data/companies' 
+
+provide('allCompanies', companies)
 </script>

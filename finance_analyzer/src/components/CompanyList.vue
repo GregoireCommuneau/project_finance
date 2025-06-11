@@ -1,57 +1,111 @@
 <template>
-  <div class="container mx-auto px-4 py-8">
-    <!-- Sticky header with filters, sort, and range -->
-    <div
-      class="sticky top-0 z-40 bg-white shadow-md border-b border-gray-200 mb-6 transition-transform duration-300"
-      :class="{ '-translate-y-full': !showHeader, 'translate-y-0': showHeader }"
-    >
-      <div class="flex flex-col sm:flex-row flex-wrap gap-4 px-4 py-2 items-center justify-between">
-        <!-- Filter panel -->
-        <FilterPanel
-          :filters="filters"
-          :sectors="sectors"
-          :onReset="resetFilters"
-          :onExport="exportToCSV"
-          :totalCount="companies.length"
-          :filteredCount="filteredCompanies.length"
-        />
-
-        <!-- Controls: Time range and sort selection -->
-        <div class="flex flex-wrap sm:flex-nowrap items-center gap-3">
-          <div class="flex gap-2">
-            <button
-              v-for="range in globalRanges"
-              :key="range.label"
-              @click="globalRange = range"
-              :class="[
-                'px-3 py-1 rounded text-sm font-medium border',
-                globalRange.label === range.label
-                  ? 'bg-blue-600 text-white border-blue-600'
-                  : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-100'
-              ]"
+  <div class="mx-auto max-w-[1440px] px-2 py-4">
+    <!-- Sticky header wrapper -->
+    <div class="sticky top-0 z-40 bg-white shadow-md border-b border-gray-200 overflow-hidden transition-all duration-300"
+         :class="showHeader ? 'max-h-[1000px]' : 'max-h-[40px]'">
+      <div v-if="showHeader" class="px-4 py-2">
+        <!-- Contenu visible uniquement quand le header est ouvert -->
+        <div class="flex flex-col sm:flex-row flex-wrap gap-4 items-center justify-between">
+          <FilterPanel
+            :filters="filters"
+            :sectors="sectors"
+            :onReset="resetFilters"
+            :onExport="exportToCSV"
+            :totalCount="companies.length"
+            :filteredCount="filteredCompanies.length"
+          />
+          <div class="flex flex-wrap sm:flex-nowrap items-center gap-3">
+            <div class="flex gap-2">
+              <button
+                v-for="range in globalRanges"
+                :key="range.label"
+                @click="globalRange = range"
+                :class="[
+                  'px-3 py-1 rounded text-sm font-medium border',
+                  globalRange.label === range.label
+                    ? 'bg-blue-600 text-white border-blue-600'
+                    : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-100'
+                ]"
+              >
+                {{ range.label }}
+              </button>
+            </div>
+            <select
+              v-model="sortBy"
+              class="border border-gray-300 px-3 py-2 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
             >
-              {{ range.label }}
-            </button>
+              <option value="">Sort by...</option>
+              <option value="score">PE Score</option>
+              <option value="revenue">Revenue</option>
+              <option value="growth">Growth</option>
+              <option value="debt">Debt/EBITDA</option>
+            </select>
           </div>
-          <select
-            v-model="sortBy"
-            class="border border-gray-300 px-3 py-2 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
-          >
-            <option value="">Sort by...</option>
-            <option value="score">PE Score</option>
-            <option value="revenue">Revenue</option>
-            <option value="growth">Growth</option>
-            <option value="debt">Debt/EBITDA</option>
-          </select>
         </div>
+      </div>
+
+      <!-- Toggle arrow -->
+      <div class="flex justify-center items-center bg-white border-t border-gray-200">
+        <button
+          @click="showHeader = !showHeader"
+          class="p-1 hover:bg-gray-100 transition rounded"
+          aria-label="Toggle header"
+        >
+          <svg
+            v-if="!showHeader"
+            xmlns="http://www.w3.org/2000/svg"
+            class="h-5 w-5"
+            viewBox="0 0 20 20"
+            fill="currentColor"
+          >
+            <path
+              fill-rule="evenodd"
+              d="M5.23 7.21a.75.75 0 011.06.02L10 10.94l3.71-3.71a.75.75 0 111.06 1.06l-4.24 4.24a.75.75 0 01-1.06 0L5.21 8.27a.75.75 0 01.02-1.06z"
+              clip-rule="evenodd"
+            />
+          </svg>
+
+          <svg
+            v-else
+            xmlns="http://www.w3.org/2000/svg"
+            class="h-5 w-5"
+            viewBox="0 0 20 20"
+            fill="currentColor"
+          >
+            <path
+              fill-rule="evenodd"
+              d="M14.77 12.79a.75.75 0 01-1.06-.02L10 9.06 6.29 12.77a.75.75 0 11-1.06-1.06l4.24-4.24a.75.75 0 011.06 0l4.24 4.24a.75.75 0 01-.02 1.06z"
+              clip-rule="evenodd"
+            />
+          </svg>
+        </button>
       </div>
     </div>
 
-    <!-- Company modal and cards -->
-    <CompanyModal :company="selectedCompany" :range="globalRange" @close="selectedCompany = null" />
+    <!-- Pagination controls (top) -->
+    <div v-if="totalPages > 1" class="flex justify-center items-center mb-4 gap-2 text-sm">
+      <button
+        @click="currentPage--"
+        :disabled="currentPage === 1"
+        class="px-3 py-1 rounded border border-gray-300 bg-white hover:bg-gray-100 disabled:opacity-50"
+      >
+        Prev
+      </button>
+      <span>Page {{ currentPage }} of {{ totalPages }}</span>
+      <button
+        @click="currentPage++"
+        :disabled="currentPage === totalPages"
+        class="px-3 py-1 rounded border border-gray-300 bg-white hover:bg-gray-100 disabled:opacity-50"
+      >
+        Next
+      </button>
+    </div>
+
+    <!-- Company list -->
+    <CompanyModal :company="selectedCompany" :range="globalRange" @close="selectedCompany = null" :allCompanies="companies" />
     <div class="grid gap-6 grid-cols-1 md:grid-cols-2 lg:grid-cols-3 mt-6">
       <CompanyCard
-        v-for="c in sortedCompanies"
+        v-for="c in paginatedCompanies"
         :key="c.name"
         :company="c"
         :score="computeScore(c)"
@@ -62,15 +116,34 @@
       />
     </div>
 
-    <!-- Empty state -->
     <p v-if="!sortedCompanies.length" class="text-center text-gray-500 mt-8 text-lg">
       No companies match your filters.
     </p>
+
+    <!-- Pagination controls (bottom) -->
+    <div v-if="totalPages > 1" class="flex justify-center items-center mt-8 gap-2 text-sm">
+      <button
+        @click="currentPage--"
+        :disabled="currentPage === 1"
+        class="px-3 py-1 rounded border border-gray-300 bg-white hover:bg-gray-100 disabled:opacity-50"
+      >
+        Prev
+      </button>
+      <span>Page {{ currentPage }} of {{ totalPages }}</span>
+      <button
+        @click="currentPage++"
+        :disabled="currentPage === totalPages"
+        class="px-3 py-1 rounded border border-gray-300 bg-white hover:bg-gray-100 disabled:opacity-50"
+      >
+        Next
+      </button>
+    </div>
   </div>
 </template>
 
+
 <script setup>
-import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
+import { ref, reactive, computed, watch} from 'vue'
 import { useCachedData } from '../composables/useCachedData'
 import CompanyCard from './CompanyCard.vue'
 import CompanyModal from './CompanyModal.vue'
@@ -79,7 +152,7 @@ import { computeSectorScore } from '../utils/scoringService'
 import { sectorProfiles } from '../utils/sectorProfiles'
 import { normalize } from '../utils/financeUtils'
 
-const { data: companies, loading } = useCachedData()
+const { data: companies } = useCachedData()
 
 const filters = reactive({
   minGrowth: null,
@@ -99,21 +172,6 @@ const globalRange = ref(globalRanges[0])
 const selectedCompany = ref(null)
 const sortBy = ref('')
 const showHeader = ref(true)
-let lastScroll = 0
-
-function handleScroll() {
-  const current = window.scrollY
-  showHeader.value = current < lastScroll || current < 50
-  lastScroll = current
-}
-
-onMounted(() => {
-  window.addEventListener('scroll', handleScroll)
-})
-
-onUnmounted(() => {
-  window.removeEventListener('scroll', handleScroll)
-})
 
 const sectors = computed(() => {
   const all = companies.value.map(c => c.sector)
@@ -224,4 +282,35 @@ function computeTrend(history) {
   if (!isFinite(start) || !isFinite(end) || start === 0) return 0
   return normalize(((end - start) / start) * 100, -50, 50)
 }
+
+const currentPage = ref(1)
+const itemsPerPage = 51
+
+const totalPages = computed(() => {
+  return Math.ceil(sortedCompanies.value.length / itemsPerPage)
+})
+
+const paginatedCompanies = computed(() => {
+  const start = (currentPage.value - 1) * itemsPerPage
+  return sortedCompanies.value.slice(start, start + itemsPerPage)
+})
+
+function goToPreviousPage() {
+  if (currentPage.value > 1) {
+    currentPage.value--
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+}
+
+function goToNextPage() {
+  if (currentPage.value < totalPages.value) {
+    currentPage.value++
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+}
+
+watch([filteredCompanies, sortBy], () => {
+  currentPage.value = 1
+})
+
 </script>

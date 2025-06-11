@@ -124,8 +124,9 @@ const scoreTooltip = computed(() => {
 const scoreBadgeClass = computed(() => {
   if (!hasValidScore.value) return 'bg-gray-300 text-gray-600'
   const s = Number(props.score)
-  if (s >= 80) return 'bg-green-500 text-white'
-  if (s >= 60) return 'bg-yellow-500 text-white'
+  if (s >= 74.5) return 'bg-green-500 text-white'
+  if (s >= 59.5) return 'bg-yellow-400 text-black'   // jaune plus clair
+  if (s >= 49.5) return 'bg-orange-500 text-white'   // couleur intermédiaire ajoutée
   return 'bg-red-500 text-white'
 })
 
