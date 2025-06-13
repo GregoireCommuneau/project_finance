@@ -110,3 +110,7 @@ npm run dev
 ## 7. About
 
 This project was built as part of my personal learning in data science and finance, with a focus on combining data analysis, UX design, and modern frontend development.
+
+---
+
+This project uses FMP data under the Starter plan, for educational purposes only. No redistribution or commercial use intended.
